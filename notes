@@ -1,0 +1,96 @@
+pypedream - Utility library for scriptwriting
+=============================================
+
+import pypedream as pyd
+
+- idea: make python scripting easier than bash
+- pipes and command execution
+- overload operators to avoid boilerplate
+    - problem: there is no swapped order __gt__ and __lt__
+        - method of right operand only used if right is subclass of left
+            - unusable, as we want to use many different types of left operand
+        - possible hack: use __rrshift__ (>>) instead: append would instead require calling open with a flag
+    __rshift__ for >> has __rrshift__ variant
+    __or__     for |  has __ror__ variant
+    __and__    for &  has __rand__ variant
+- interface with pathlib
+
+- must construct the "computation graph" for the pipeline before starting execution
+    - pipe out to file_w would normally mark the end of the pipeline
+    - if output is not piped, we need some other mechanism
+        - calling a function cmd.run() is not good, due to too high precedence 
+            - would require ugly parenthesis: (file_r >> cmd).run()
+        - possible hack: special endpoint. One of the following:
+            cmd | RUN
+            cmd >> NULL
+                - NULL doesn't need to be a special object, we could use None
+        - stdout is not the default, must be asked for specificly
+            cmd >> sys.stdout
+        - likewise stdin of main script can be easily used as file_r
+            sys.stdin >> cmd
+
+- operator precedence is a big problem
+    relevant ops:       ()  x.attr  /   +   <<, >>  |  <,>
+    these all have the same precendence: * @ / // %
+    - possible hacks
+        1) explicit None input: must write None >> cmd >> None for neither in nor out
+            - solves the problem, as nothing is run before both input and output are known
+            - a certain symmetry: the user must explicitly consider both input and output
+        2) explicit run: must write pyd.run(cmd); pyd.run(file_r >> cmd | cmd >> file_w)
+        3) increase precedence of pipe: use / or // instead: file_r >> cmd // cmd >> file_w
+            - // perhaps better than / because pathlib is already overloading /
+            - minor problem: can't use + for arguments anymore
+        4) use totally different operators: file_r @ cmd // cmd * '--args' @ file_w
+    - hacks 1 and 2 are actually compatible
+
+- perhaps seamlessly integrate file IO and coroutines?
+    - execution
+        - if no parts are pure python (input and output are pathlib, commands are paths)
+            - could determine a shell commandline with piping, launch it in a subshell (?)
+            - alternatively could do it the same way as the else branch
+                - if it works well, then second implementation is unnecessary
+        - else (if any part is pure python)
+            - run only individual external commands as subprocesses
+            - between each step, all lines pass via python
+            - perhaps use FIFOs in a tmp dir for communicating with spawned processes?
+                - motivation: avoid buffering problems in subprocess
+- how to handle stderr of spawned processes?
+    - perhaps default to redirecting it to stderr of main script
+    - override with keyword to pyd.Command ?
+- do we want to do something for files given as arguments to commands?
+    - no, this would be overengineering
+- how to handle failed execution?
+    - raise an exception
+    - possibility to override by keyword arg to Command
+
+- possible nice extra features
+    - building argument list with addition
+        - executable is defined as pyd.Command, e.g. myprog = pyd.Command('myprog')
+        - specific arguments by adding a string: myprog + '--dwim' -> new Command
+    - filling in argument on command line using format string?
+        myprog = pyd.Command('myprog --arg={arg}'); myprog.format(arg=42)
+    - transparent handling of compressed files (when using pathlib)
+    - checking existence of executables already when defining them for early fail
+
+file    := pathlib.Path OR open file handle
+file_r  := file OR iterator  OR None
+file_w  := file OR callable? OR None
+exe     := path OR callable?
+cmd     := pyd.Command(exe)
+
+None >> cmd >> None             no output must be marked explicitly
+file_r >> cmd >> None
+cmd << file_r >> None
+
+file_r >> cmd >> file_w
+cmd << file_r >> file_w
+
+None >> cmd | cmd >> None
+file_r >> cmd | cmd >> file_w
+
+
+
+- Step by step of "file_r >> cmd1 | cmd2 >> file_w"
+    cmd1.__rrshift__(file_r)    ->  x0: pyd.PartialPipeline
+    cmd2.__rshift__(file_w)     ->  x1: pyd.PartialPipeline
+    x0.__or__(x1)               ->  return value (both ends filled: executes pipeline)

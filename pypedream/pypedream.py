@@ -1,3 +1,5 @@
+import sys
+
 class Unfilled(object):
     def __repr__(self):
         return 'UNFILLED'
@@ -5,11 +7,13 @@ UNFILLED = Unfilled()
 
 
 class Command(object):
-    def __init__(self, commandline):
+    def __init__(self, commandline, stderr=sys.stderr):
         if isinstance(commandline, Command):
             self.commandline = commandline.commandline
+            stderr = commandline._stderr
         else:
             self.commandline = commandline
+        self.stderr(stderr)
 
     def __rshift__(self, other):
         """self >> other"""
@@ -32,13 +36,19 @@ class Command(object):
         return pp | other
 
     def __add__(self, other):
-        pass
+        commandline = self.commandline + ' ' + other
+        return Command(commandline, self._stderr)
 
     def format(self, *args, **kwargs):
-        return self.commandline.format(*args, **kwargs)
+        return Command(self.commandline.format(*args, **kwargs),
+                       self._stderr)
 
     def __repr__(self):
         return '{}({})'.format(self.__class__.__name__, self.commandline)
+
+    def stderr(self, stderr):
+        # TODO: opening of file if needed
+        self._stderr = stderr
 
 
 class PartialPipeline(object):

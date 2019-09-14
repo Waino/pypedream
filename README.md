@@ -1,5 +1,11 @@
-pypedream - Quick start
-===========================
+pypedream - Utility library for scriptwriting
+=============================================
+
+The purpose of this library is to make writing scripts in python
+as painless and boilerplate-free as possible.
+
+NOTE: currently only an interface mockup.
+Scripts written in this library currently do nothing.
 
 
 Installation
