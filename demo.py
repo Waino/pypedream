@@ -36,23 +36,31 @@ print('8')
 pyd.run(myprog | myprog)
 print('9')
 file_r >> myprog | myprog >> file_w
+print('10')
+file_r >> myprog | pyd.Command('./second') | pyd.Command('./third') >> file_w
+
+# creating a pipeline, applying it several times
+print('11')
+my_pipeline = myprog | myprog
+file_r >> my_pipeline >> None
+None >> my_pipeline >> file_w
 
 # stdin, stdout and stderr of main script
-print('10')
+print('12')
 sys.stdin >> myprog >> sys.stdout
 
 # arguments
-print('11')
-'data/a' >> pyd.Command('./myprog --oneliner') >> 'data/b'
-print('12')
-None >> myprog + '--add' >> None
 print('13')
-file_r >> myprog + '--1st' | myprog + '--2nd' >> file_w
+'data/a' >> pyd.Command('./myprog --oneliner') >> 'data/b'
 print('14')
+None >> myprog + '--add' >> None
+print('15')
+file_r >> myprog + '--1st' | myprog + '--2nd' >> file_w
+print('16')
 None >> argsprog.format(a='A', b='B') >> None
 
 # mixing in pure python elements
-print('15')
+print('17')
 def exe_func(lines):
     for line in lines:
         yield '_' + line
