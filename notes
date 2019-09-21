@@ -43,6 +43,14 @@ import pypedream as pyd
         4) use totally different operators: file_r @ cmd // cmd * '--args' @ file_w
     - hacks 1 and 2 are actually compatible
 
+- executing subprocesses
+    - can NOT use Popen.communicate or Popen.wait: cannot be used with large pipes due to buffering
+    - .stdin.write, .stdout.read or .stderr.read might cause deadlocks
+        - either reader or writer must be on a separate thread
+    - possible solution: asyncio.create_subprocess_exec
+        https://docs.python.org/3/library/asyncio-subprocess.html
+            - example uses data = await proc.stdout.readline()
+        - requires python 3.7 though
 - perhaps seamlessly integrate file IO and coroutines?
     - execution
         - if no parts are pure python (input and output are pathlib, commands are paths)
@@ -62,6 +70,14 @@ import pypedream as pyd
 - how to handle failed execution?
     - raise an exception
     - possibility to override by keyword arg to Command
+- shorter name for convenience
+- standard executables
+- cd and env, os.path.expandvars
+- filename wildcards using glob, expanding ~ to homedir with os.path.expanduser
+- parallel execution (not critical)
+    - asyncio makes this easy
+- creating a stdin manually from one or more strings (rarely needed)
+
 
 - possible nice extra features
     - building argument list with addition
