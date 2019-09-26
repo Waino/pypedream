@@ -1,4 +1,6 @@
+import subprocess
 import sys
+import threading
 
 class Unfilled(object):
     def __repr__(self):
@@ -89,16 +91,80 @@ class PartialPipeline(object):
             self.__class__.__name__,
             self.input, self.commands, self.output)
 
-    def _execute(self):
+    def _dummy_execute(self):
         if self.input is not None:
             print('Read input "{}"'.format(self.input))
         for command in self.commands:
             print('Execute "{}"'.format(command))
         if self.output is None:
-            # execute without retaining output
             print('without retaining output')
         else:
             print('Write into "{}"'.format(self.output))
+
+    def _normalize_input(self, input):
+        ## handle various inputs
+        # string: turn into pathlib.Path
+        if isinstance(input, str):
+            input = pathlib.Path(input)
+        # pathlib.Path
+        #   if compressed: transparently unpack (different Popen/python impl?)
+        #       perhaps prepend a command?
+        return input
+
+    def _group_commands(self, commands):
+        current = []
+        for command in commands:
+            if isinstance(command.commandline, callable):
+                # also unwrapping
+                current.append(command.commandline)
+            else:
+                if len(current) > 0:
+                    yield current
+                current = []
+                yield command
+        if len(current) > 0:
+            yield current
+
+    def _execute(self):
+        input = self._normalize_input(self.input)
+        # does output need separate handling?
+        output = self._normalize_input(self.output)
+        # python commands need to be grouped
+        grouped = self._group_commands(self.commands)
+        # first Popen, then python
+
+
+class PythonPipelineThread(threading.Thread):
+    """ Executes a part of a pipeline
+    written directly in the python script """
+    def __init__(self, source, transform, sink, *args, **kwargs):
+        self.source = source
+        self.transform = transform
+        self.sink = sink
+        if all(x is None for x in (self.source, self.target)):
+            raise Exception('Python command cannot have both ends None')
+        if self.source is None:
+            thread_target = self.shovel_in
+        elif self.target is None:
+            thread_target = self.shovel_out
+        else:
+            thread_target = self.shovel_through
+        super().__init__(target=thread_target)
+        self.start()
+
+    def shovel_in(self):
+        with self.sink:
+            for line in self.transform():
+                self.sink.write(line)
+
+    def shovel_out(self):
+        for line in self.transform(self.source):
+            pass
+
+    def shovel_through(self):
+        with self.sink:
+            for line in self.transform(self.source):
+                self.sink.write(line)
 
 
 def run(partial_pipeline):
