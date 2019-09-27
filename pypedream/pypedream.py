@@ -101,15 +101,18 @@ class PartialPipeline(object):
         else:
             print('Write into "{}"'.format(self.output))
 
-    def _normalize_input(self, input):
-        ## handle various inputs
-        # string: turn into pathlib.Path
-        if isinstance(input, str):
-            input = pathlib.Path(input)
-        # pathlib.Path
-        #   if compressed: transparently unpack (different Popen/python impl?)
-        #       perhaps prepend a command?
-        return input
+    def _normalize_endpoint(self, endpoint, mode):
+        ## handle various endpoints
+        # turn strings into pathlib.Path
+        if isinstance(endpoint, str):
+            endpoint = pathlib.Path(endpoint)
+        if isinstance(endpoint, pathlib.Path):
+            # transparently decompress
+            if endpoint.endswith('.gz'):
+                endpoint = gzip.open(endpoint, mode)
+        # file handles: nothing needed
+        # callables, iterables: nothing needed?
+        return endpoint
 
     def _group_commands(self, commands):
         current = []
@@ -119,19 +122,53 @@ class PartialPipeline(object):
                 current.append(command.commandline)
             else:
                 if len(current) > 0:
-                    yield current
+                    yield current, True
                 current = []
-                yield command
+                yield command, False
         if len(current) > 0:
-            yield current
+            yield current, True
 
     def _execute(self):
-        input = self._normalize_input(self.input)
+        input = self._normalize_endpoint(self.input, 'r')
         # does output need separate handling?
-        output = self._normalize_input(self.output)
+        # FIXME: append
+        output = self._normalize_endpoint(self.output, 'w+')
         # python commands need to be grouped
-        grouped = self._group_commands(self.commands)
-        # first Popen, then python
+        grouped = list(self._group_commands(self.commands))
+        links = [input]
+        processes = []
+		# create subprocesses first
+        for i, (group, native) in enumerate(grouped):
+            if not native:
+                proc_input = links[-1]
+                if proc_input is None:
+                    proc_input = subprocess.PIPE
+                proc_output = output if i == len(grouped) - 1 else subprocess.PIPE
+                proc = subprocess.Popen(
+                    group.commandline,
+                    stdin=proc_input,
+                    stdout=proc_output,
+                    universal_newlines=True,
+                    bufsize=-1)
+                if proc_input == subprocess.PIPE:
+                    # overwrite the None with the pipe
+                    links[-1] = proc.stdin
+                links.append(proc.stdout)
+                processes.append(proc)
+            else:
+                links.append(None)
+                processes.append(None)
+        # connect the gaps using PythonPipelineThread
+        for i, (group, native) in enumerate(grouped):
+            if native:
+                proc_input = links[i]
+                proc_output = links[i + 1]
+                proc = PythonPipelineThread(proc_input, group, proc_output)
+                processes.append(proc)
+            # else pass
+        # Wait for the subprocesses to exit.
+        for proc in processes:
+            proc.wait()
 
 
 class PythonPipelineThread(threading.Thread):
@@ -165,6 +202,9 @@ class PythonPipelineThread(threading.Thread):
         with self.sink:
             for line in self.transform(self.source):
                 self.sink.write(line)
+
+    def wait(self):
+        self.join()
 
 
 def run(partial_pipeline):
