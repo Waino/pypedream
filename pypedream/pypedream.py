@@ -1,3 +1,4 @@
+import pathlib
 import subprocess
 import sys
 import threading
@@ -108,8 +109,10 @@ class PartialPipeline(object):
             endpoint = pathlib.Path(endpoint)
         if isinstance(endpoint, pathlib.Path):
             # transparently decompress
-            if endpoint.endswith('.gz'):
+            if str(endpoint).endswith('.gz'):
                 endpoint = gzip.open(endpoint, mode)
+            else:
+                endpoint = endpoint.open(mode)
         # file handles: nothing needed
         # callables, iterables: nothing needed?
         return endpoint
@@ -117,7 +120,7 @@ class PartialPipeline(object):
     def _group_commands(self, commands):
         current = []
         for command in commands:
-            if isinstance(command.commandline, callable):
+            if callable(command.commandline):
                 # also unwrapping
                 current.append(command.commandline)
             else:
@@ -141,9 +144,11 @@ class PartialPipeline(object):
         for i, (group, native) in enumerate(grouped):
             if not native:
                 proc_input = links[-1]
-                if proc_input is None:
+                if proc_input is UNFILLED:
                     proc_input = subprocess.PIPE
                 proc_output = output if i == len(grouped) - 1 else subprocess.PIPE
+                print('Popen with {} -> {} -> {}'.format(proc_input, group.commandline, proc_output))
+                # FIXME: need to tokenize with shlex
                 proc = subprocess.Popen(
                     group.commandline,
                     stdin=proc_input,
@@ -151,23 +156,25 @@ class PartialPipeline(object):
                     universal_newlines=True,
                     bufsize=-1)
                 if proc_input == subprocess.PIPE:
-                    # overwrite the None with the pipe
+                    # overwrite the UNFILLED with the pipe
                     links[-1] = proc.stdin
                 links.append(proc.stdout)
                 processes.append(proc)
             else:
-                links.append(None)
-                processes.append(None)
+                links.append(UNFILLED)
+                processes.append(UNFILLED)
         # connect the gaps using PythonPipelineThread
         for i, (group, native) in enumerate(grouped):
             if native:
                 proc_input = links[i]
                 proc_output = links[i + 1]
+                print('PPT with {} -> {} -> {}'.format(proc_input, group, proc_output))
                 proc = PythonPipelineThread(proc_input, group, proc_output)
-                processes.append(proc)
+                processes[i] = proc
             # else pass
         # Wait for the subprocesses to exit.
         for proc in processes:
+            print('waiting for {}'.format(proc))
             proc.wait()
 
 

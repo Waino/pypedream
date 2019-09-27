@@ -4,18 +4,19 @@ import sys
 
 # In one style, executables are declared in the beginning
 myprog = pyd.Command('./myprog')
+noinprog = pyd.Command('./noinprog')
 argsprog = pyd.Command('./argsprog --a {a} --b {b}')
 
-file_r = pathlib.Path('data') / 'input'
-file_w = pathlib.Path('data') / 'output'
+file_r = pathlib.Path('testdata') / 'large_file'
+file_w = pathlib.Path('tmp') / 'output'
 
 # To execute a command without binding stdin and stdout
 # the user must explicitly pipe to None
 print('1')
-None >> myprog >> None
+None >> noinprog >> None
 # alternatively, use pyd.run
 print('2')
-pyd.run(myprog)
+pyd.run(noinprog)
 
 # two alternate ways to specify input file
 print('3')
@@ -31,19 +32,19 @@ myprog << file_r >> file_w
 
 # piping through multiple executables
 print('7')
-None >> myprog | myprog >> None
+None >> noinprog | myprog >> None
 print('8')
-pyd.run(myprog | myprog)
+pyd.run(noinprog | myprog)
 print('9')
 file_r >> myprog | myprog >> file_w
 print('10')
-file_r >> myprog | pyd.Command('./second') | pyd.Command('./third') >> file_w
+file_r >> myprog | pyd.Command('tac') | pyd.Command('rev') >> file_w
 
 # creating a pipeline, applying it several times
 print('11')
 my_pipeline = myprog | myprog
 file_r >> my_pipeline >> None
-None >> my_pipeline >> file_w
+'testdata/a' >> my_pipeline >> file_w
 
 # stdin, stdout and stderr of main script
 print('12')
@@ -51,7 +52,7 @@ sys.stdin >> myprog >> sys.stdout
 
 # arguments
 print('13')
-'data/a' >> pyd.Command('./myprog --oneliner') >> 'data/b'
+'testdata/a' >> pyd.Command('./myprog --oneliner') >> 'tmp/b'
 print('14')
 None >> myprog + '--add' >> None
 print('15')
