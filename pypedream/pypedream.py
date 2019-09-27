@@ -1,4 +1,5 @@
 import pathlib
+import shlex
 import subprocess
 import sys
 import threading
@@ -115,6 +116,7 @@ class PartialPipeline(object):
                 endpoint = endpoint.open(mode)
         # file handles: nothing needed
         # callables, iterables: nothing needed?
+        # FIXME: also close the handles
         return endpoint
 
     def _group_commands(self, commands):
@@ -135,12 +137,12 @@ class PartialPipeline(object):
         input = self._normalize_endpoint(self.input, 'r')
         # does output need separate handling?
         # FIXME: append
-        output = self._normalize_endpoint(self.output, 'w+')
+        output = self._normalize_endpoint(self.output, 'a')
         # python commands need to be grouped
         grouped = list(self._group_commands(self.commands))
         links = [input]
         processes = []
-		# create subprocesses first
+        # create subprocesses first
         for i, (group, native) in enumerate(grouped):
             if not native:
                 proc_input = links[-1]
@@ -148,9 +150,9 @@ class PartialPipeline(object):
                     proc_input = subprocess.PIPE
                 proc_output = output if i == len(grouped) - 1 else subprocess.PIPE
                 print('Popen with {} -> {} -> {}'.format(proc_input, group.commandline, proc_output))
-                # FIXME: need to tokenize with shlex
+                commandline = shlex.split(group.commandline)
                 proc = subprocess.Popen(
-                    group.commandline,
+                    commandline,
                     stdin=proc_input,
                     stdout=proc_output,
                     universal_newlines=True,
@@ -163,6 +165,8 @@ class PartialPipeline(object):
             else:
                 links.append(UNFILLED)
                 processes.append(UNFILLED)
+        if links[-1] == UNFILLED:
+            links[-1] = output
         # connect the gaps using PythonPipelineThread
         for i, (group, native) in enumerate(grouped):
             if native:
@@ -172,7 +176,7 @@ class PartialPipeline(object):
                 proc = PythonPipelineThread(proc_input, group, proc_output)
                 processes[i] = proc
             # else pass
-        # Wait for the subprocesses to exit.
+        # Wait for the subprocesses to exit
         for proc in processes:
             print('waiting for {}'.format(proc))
             proc.wait()
@@ -181,34 +185,52 @@ class PartialPipeline(object):
 class PythonPipelineThread(threading.Thread):
     """ Executes a part of a pipeline
     written directly in the python script """
-    def __init__(self, source, transform, sink, *args, **kwargs):
+    def __init__(self, source, transforms, sink, *args, **kwargs):
         self.source = source
-        self.transform = transform
+        self.transforms = transforms
         self.sink = sink
-        if all(x is None for x in (self.source, self.target)):
-            raise Exception('Python command cannot have both ends None')
-        if self.source is None:
+        if callable(self.sink):
+            # callable sinks work better as part of transform
+            self.transforms.append(self.sink)
+            self.sink = None
+        if all(x is None for x in (self.source, self.sink)):
+            thread_target = self.no_pipes
+        elif self.source is None:
             thread_target = self.shovel_in
-        elif self.target is None:
+        elif self.sink is None:
             thread_target = self.shovel_out
         else:
             thread_target = self.shovel_through
         super().__init__(target=thread_target)
         self.start()
 
+    def apply_transform(self, stream=None):
+        for transform in self.transforms:
+            if stream is None:
+                stream = transform()
+            else:
+                stream = transform(stream)
+        return stream
+
+    def no_pipes(self):
+        for line in self.apply_transform():
+            pass
+
     def shovel_in(self):
-        with self.sink:
-            for line in self.transform():
-                self.sink.write(line)
+        for line in self.apply_transform():
+            self.sink.write(line)
 
     def shovel_out(self):
-        for line in self.transform(self.source):
+        stream = self.apply_transform(self.source)
+        if stream is None:
+            return
+        for line in stream:
+            # consume stream
             pass
 
     def shovel_through(self):
-        with self.sink:
-            for line in self.transform(self.source):
-                self.sink.write(line)
+        for line in self.apply_transform(self.source):
+            self.sink.write(line)
 
     def wait(self):
         self.join()

@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 import sys
 
+if len(sys.argv) > 1:
+    print('args:', sys.argv)
+
 for line in sys.stdin:
     print('A {}'.format(line.strip()))

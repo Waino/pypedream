@@ -5,7 +5,7 @@ import sys
 # In one style, executables are declared in the beginning
 myprog = pyd.Command('./myprog')
 noinprog = pyd.Command('./noinprog')
-argsprog = pyd.Command('./argsprog --a {a} --b {b}')
+argsprog = pyd.Command('./myprog --a {a} --b {b}')
 
 file_r = pathlib.Path('testdata') / 'large_file'
 file_w = pathlib.Path('tmp') / 'output'
@@ -64,7 +64,7 @@ None >> argsprog.format(a='A', b='B') >> None
 print('17')
 def exe_func(lines):
     for line in lines:
-        yield '_' + line
+        yield '_ {}'.format(line)
 def consumer_func(lines):
-    print('result', len(lines), lines[0])
+    print('first result line', next(lines))
 range(10) >> pyd.Command(exe_func) >> consumer_func
