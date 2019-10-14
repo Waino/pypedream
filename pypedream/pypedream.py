@@ -12,12 +12,13 @@ UNFILLED = Unfilled()
 
 class Command(object):
     def __init__(self, commandline, stderr=sys.stderr):
-        if isinstance(commandline, Command):
-            self.commandline = commandline.commandline
-            stderr = commandline._stderr
-        else:
-            self.commandline = commandline
+        self.commandline = commandline
         self.stderr(stderr)
+
+    def new(self, **overrides):
+        commandline = overrides.get('commandline', self.commandline)
+        stderr = overrides.get('stderr', self._stderr)
+        return self.__class__(commandline, stderr)
 
     def __rshift__(self, other):
         """self >> other"""
@@ -41,11 +42,10 @@ class Command(object):
 
     def __add__(self, other):
         commandline = self.commandline + ' ' + other
-        return Command(commandline, self._stderr)
+        return self.new(commandline=commandline)
 
     def format(self, *args, **kwargs):
-        return Command(self.commandline.format(*args, **kwargs),
-                       self._stderr)
+        return self.new(commandline=self.commandline.format(*args, **kwargs))
 
     def __repr__(self):
         return '{}({})'.format(self.__class__.__name__, self.commandline)
@@ -83,7 +83,8 @@ class PartialPipeline(object):
             commands = self.commands + other.commands
             pp = PartialPipeline(self.input, commands, other.output)
         else:
-            other = Command(other)
+            if not isinstance(other, Command):
+                other = Command(other)
             commands = self.commands + [other]
             pp = PartialPipeline(self.input, commands, self.output)
         return pp
