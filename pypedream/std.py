@@ -1,3 +1,8 @@
+""" Standard Commands for boilerplate reduction """
+# C0103 Constant name in UPPER_CASE: uppercase is tedious for scripting
+# W0611 unused-import: renaming import for easy "from pypedream.std import *"
+# pylint: disable=C0103,W0611
+
 ### shorter names
 from .pypedream import Command as C
 from .pypedream import Function as F

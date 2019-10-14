@@ -7,7 +7,7 @@ myprog = pyd.Command('./myprog')
 noinprog = pyd.Command('./noinprog')
 argsprog = pyd.Command('./myprog --a {a} --b {b}')
 
-file_r = pathlib.Path('testdata') / 'large_file'
+file_r = pathlib.Path('testdata') / 'small_file'  #'large_file'
 file_w = pathlib.Path('tmp') / 'output'
 
 # To execute a command without binding stdin and stdout
@@ -67,4 +67,4 @@ def exe_func(lines):
         yield '_ {}'.format(line)
 def consumer_func(lines):
     print('first result line', next(lines))
-range(10) >> pyd.Command(exe_func) >> consumer_func
+range(10) >> pyd.Function(exe_func) >> consumer_func

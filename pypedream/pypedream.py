@@ -1,3 +1,8 @@
+"""
+pypedream - Utility library for scriptwriting
+"""
+
+import gzip
 import pathlib
 import shlex
 import subprocess
@@ -5,6 +10,8 @@ import sys
 import threading
 
 class Unfilled(object):
+    """ Unfilled endpoints during pipeline creation.
+    Can't use None, because that means don't connect """
     def __repr__(self):
         return 'UNFILLED'
 UNFILLED = Unfilled()
@@ -16,27 +23,29 @@ class BaseCommand(object):
         self.stderr(stderr)
 
     def new(self, **overrides):
+        """ Creates a copy of self, with specified keyword attributes
+        overridden. """
         commandline = overrides.get('commandline', self.commandline)
         stderr = overrides.get('stderr', self._stderr)
         return self.__class__(commandline, stderr)
 
     def __rshift__(self, other):
-        """self >> other"""
+        """ self >> other. Pipes output of self into endpoint other. """
         pp = PartialPipeline(commands=[self])
         return pp >> other
 
     def __lshift__(self, other):
-        """self << other"""
+        """ self << other. Pipes startpoint other into self. """
         pp = PartialPipeline(input=other, commands=[self])
         return pp
 
     def __rrshift__(self, other):
-        """other >> self"""
+        """other >> self. Pipes startpoint other into self. """
         pp = PartialPipeline(input=other, commands=[self])
         return pp
 
     def __or__(self, other):
-        """self | other"""
+        """self | other. Pipes output of self into BaseCommand other. """
         pp = PartialPipeline(commands=[self])
         return pp | other
 
@@ -44,17 +53,23 @@ class BaseCommand(object):
         return '{}({})'.format(self.__class__.__name__, self.commandline)
 
     def stderr(self, stderr):
+        """ Set standard error """
         # TODO: opening of file if needed
         self._stderr = stderr
+
 
 class Command(BaseCommand):
     """ An external executable BaseCommand """
     def __add__(self, other):
+        """ Add command line arguments """
         commandline = self.commandline + ' ' + other
         return self.new(commandline=commandline)
 
     def format(self, *args, **kwargs):
+        """ Fill in concrete arguments in a commandline
+        specified as a format string. """
         return self.new(commandline=self.commandline.format(*args, **kwargs))
+
 
 class Function(BaseCommand):
     """ A native Python BaseCommand """
@@ -67,19 +82,20 @@ class PartialPipeline(object):
         self.commands = [] if commands == UNFILLED else commands
         self.output = output
         if all(x is not UNFILLED for x in (self.input, self.output)):
+            # execute when both ends of pipeline are defined
             self._execute()
 
     def __rshift__(self, other):
         """self >> other"""
         assert self.output == UNFILLED
-        pp = PartialPipeline(self.input, self.commands, other)
-        return pp
+        ppipe = PartialPipeline(self.input, self.commands, other)
+        return ppipe
 
     def __rrshift__(self, other):
         """other >> self"""
         assert self.input == UNFILLED
-        pp = PartialPipeline(other, self.commands, self.output)
-        return pp
+        ppipe = PartialPipeline(other, self.commands, self.output)
+        return ppipe
 
     def __or__(self, other):
         """self | other"""
@@ -87,13 +103,13 @@ class PartialPipeline(object):
             assert self.output == UNFILLED
             assert other.input == UNFILLED
             commands = self.commands + other.commands
-            pp = PartialPipeline(self.input, commands, other.output)
+            ppipe = PartialPipeline(self.input, commands, other.output)
         else:
             if not isinstance(other, BaseCommand):
                 other = Command(other)
             commands = self.commands + [other]
-            pp = PartialPipeline(self.input, commands, self.output)
-        return pp
+            ppipe = PartialPipeline(self.input, commands, self.output)
+        return ppipe
 
     def __repr__(self):
         return '{}[{}, {}, {}]'.format(
@@ -101,6 +117,7 @@ class PartialPipeline(object):
             self.input, self.commands, self.output)
 
     def _dummy_execute(self):
+        # FIXME: debug
         if self.input is not None:
             print('Read input "{}"'.format(self.input))
         for command in self.commands:
@@ -117,18 +134,28 @@ class PartialPipeline(object):
             endpoint = pathlib.Path(endpoint)
         if isinstance(endpoint, pathlib.Path):
             # transparently decompress
+            # TODO: other compression formats
             if str(endpoint).endswith('.gz'):
                 endpoint = gzip.open(endpoint, mode)
             else:
                 endpoint = endpoint.open(mode)
         # file handles: nothing needed
         # callables, iterables: nothing needed?
-        # FIXME: also close the handles
         return endpoint
+
+    def _close_endpoint(self, endpoint):
+        if endpoint in (sys.stdin, sys.stdout):
+            # don't close standard streams
+            return
+        try:
+            endpoint.close()
+        except AttributeError:
+            pass
 
     def _group_commands(self, commands):
         current = []
         for command in commands:
+            # could use Command vs Function here
             if callable(command.commandline):
                 # also unwrapping
                 current.append(command.commandline)
@@ -141,9 +168,10 @@ class PartialPipeline(object):
             yield current, True
 
     def _execute(self):
+        # FIXME: refactor
         input = self._normalize_endpoint(self.input, 'r')
         # does output need separate handling?
-        # FIXME: append
+        # FIXME: append for debug
         output = self._normalize_endpoint(self.output, 'a')
         # python commands need to be grouped
         grouped = list(self._group_commands(self.commands))
@@ -187,6 +215,9 @@ class PartialPipeline(object):
         for proc in processes:
             print('waiting for {}'.format(proc))
             proc.wait()
+        # Close endpoints if needed
+        self._close_endpoint(input)
+        self._close_endpoint(output)
 
 
 class PythonPipelineThread(threading.Thread):
@@ -220,7 +251,8 @@ class PythonPipelineThread(threading.Thread):
         return stream
 
     def no_pipes(self):
-        for line in self.apply_transform():
+        for _ in self.apply_transform():
+            # consume stream
             pass
 
     def shovel_in(self):
@@ -231,7 +263,7 @@ class PythonPipelineThread(threading.Thread):
         stream = self.apply_transform(self.source)
         if stream is None:
             return
-        for line in stream:
+        for _ in stream:
             # consume stream
             pass
 
@@ -244,9 +276,11 @@ class PythonPipelineThread(threading.Thread):
 
 
 def run(partial_pipeline):
+    """ An alternate way to run a (sequence of) Command(s)
+    without piping input or output. """
     if isinstance(partial_pipeline, BaseCommand):
         partial_pipeline = PartialPipeline(commands=[partial_pipeline])
     input = None if partial_pipeline.input == UNFILLED else partial_pipeline.input
     output = None if partial_pipeline.output == UNFILLED else partial_pipeline.output
-    pp = PartialPipeline(input, partial_pipeline.commands, output)
-    return pp
+    ppipe = PartialPipeline(input, partial_pipeline.commands, output)
+    return ppipe
