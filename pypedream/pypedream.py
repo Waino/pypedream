@@ -10,7 +10,7 @@ class Unfilled(object):
 UNFILLED = Unfilled()
 
 
-class Command(object):
+class BaseCommand(object):
     def __init__(self, commandline, stderr=sys.stderr):
         self.commandline = commandline
         self.stderr(stderr)
@@ -40,6 +40,15 @@ class Command(object):
         pp = PartialPipeline(commands=[self])
         return pp | other
 
+    def __repr__(self):
+        return '{}({})'.format(self.__class__.__name__, self.commandline)
+
+    def stderr(self, stderr):
+        # TODO: opening of file if needed
+        self._stderr = stderr
+
+class Command(BaseCommand):
+    """ An external executable BaseCommand """
     def __add__(self, other):
         commandline = self.commandline + ' ' + other
         return self.new(commandline=commandline)
@@ -47,12 +56,9 @@ class Command(object):
     def format(self, *args, **kwargs):
         return self.new(commandline=self.commandline.format(*args, **kwargs))
 
-    def __repr__(self):
-        return '{}({})'.format(self.__class__.__name__, self.commandline)
-
-    def stderr(self, stderr):
-        # TODO: opening of file if needed
-        self._stderr = stderr
+class Function(BaseCommand):
+    """ A native Python BaseCommand """
+    pass
 
 
 class PartialPipeline(object):
@@ -83,7 +89,7 @@ class PartialPipeline(object):
             commands = self.commands + other.commands
             pp = PartialPipeline(self.input, commands, other.output)
         else:
-            if not isinstance(other, Command):
+            if not isinstance(other, BaseCommand):
                 other = Command(other)
             commands = self.commands + [other]
             pp = PartialPipeline(self.input, commands, self.output)
@@ -238,7 +244,7 @@ class PythonPipelineThread(threading.Thread):
 
 
 def run(partial_pipeline):
-    if isinstance(partial_pipeline, Command):
+    if isinstance(partial_pipeline, BaseCommand):
         partial_pipeline = PartialPipeline(commands=[partial_pipeline])
     input = None if partial_pipeline.input == UNFILLED else partial_pipeline.input
     output = None if partial_pipeline.output == UNFILLED else partial_pipeline.output
