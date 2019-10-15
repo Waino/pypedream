@@ -18,36 +18,39 @@ UNFILLED = Unfilled()
 
 
 class BaseCommand(object):
-    def __init__(self, commandline, stderr=sys.stderr):
+    def __init__(self, commandline, stderr=sys.stderr, parallel=None):
         self.commandline = commandline
         self.stderr(stderr)
+        print('BaseCommand setting parallel', parallel)
+        self.parallel = parallel
 
     def new(self, **overrides):
         """ Creates a copy of self, with specified keyword attributes
         overridden. """
         commandline = overrides.get('commandline', self.commandline)
         stderr = overrides.get('stderr', self._stderr)
+        parallel = overrides.get('parallel', self.parallel)
         return self.__class__(commandline, stderr)
 
     def __rshift__(self, other):
         """ self >> other. Pipes output of self into endpoint other. """
-        pp = PartialPipeline(commands=[self])
-        return pp >> other
+        ppipe = PartialPipeline(commands=[self])
+        return ppipe >> other
 
     def __lshift__(self, other):
         """ self << other. Pipes startpoint other into self. """
-        pp = PartialPipeline(input=other, commands=[self])
-        return pp
+        ppipe = PartialPipeline(input=other, commands=[self])
+        return ppipe
 
     def __rrshift__(self, other):
         """other >> self. Pipes startpoint other into self. """
-        pp = PartialPipeline(input=other, commands=[self])
-        return pp
+        ppipe = PartialPipeline(input=other, commands=[self])
+        return ppipe
 
     def __or__(self, other):
         """self | other. Pipes output of self into BaseCommand other. """
-        pp = PartialPipeline(commands=[self])
-        return pp | other
+        ppipe = PartialPipeline(commands=[self])
+        return ppipe | other
 
     def __repr__(self):
         return '{}({})'.format(self.__class__.__name__, self.commandline)
@@ -77,13 +80,23 @@ class Function(BaseCommand):
 
 
 class PartialPipeline(object):
-    def __init__(self, input=UNFILLED, commands=UNFILLED, output=UNFILLED):
+    def __init__(self, input=UNFILLED, commands=UNFILLED, output=UNFILLED, parallel=None):
         self.input = input
         self.commands = [] if commands == UNFILLED else commands
         self.output = output
+        self.processes = None
+        # one command with parallel set is enough
+        self.parallel = [command.parallel 
+                         for command in self.commands
+                         if command.parallel is not None]
+        if parallel is not None:
+            self.parallel.append(parallel)
+        print('PartialPipeline setting parallel', self.parallel)
         if all(x is not UNFILLED for x in (self.input, self.output)):
             # execute when both ends of pipeline are defined
             self._execute()
+        else:
+            print('not executing:', self.input, self.output)
 
     def __rshift__(self, other):
         """self >> other"""
@@ -104,6 +117,8 @@ class PartialPipeline(object):
             assert other.input == UNFILLED
             commands = self.commands + other.commands
             ppipe = PartialPipeline(self.input, commands, other.output)
+            print('self', self.parallel, 'other', other.parallel)
+            ppipe.parallel = other.parallel # FIXME
         else:
             if not isinstance(other, BaseCommand):
                 other = Command(other)
@@ -168,22 +183,23 @@ class PartialPipeline(object):
             yield current, True
 
     def _execute(self):
+        print('in _execute')
         # FIXME: refactor
-        input = self._normalize_endpoint(self.input, 'r')
+        self.input = self._normalize_endpoint(self.input, 'r')
         # does output need separate handling?
         # FIXME: append for debug
-        output = self._normalize_endpoint(self.output, 'a')
+        self.output = self._normalize_endpoint(self.output, 'a')
         # python commands need to be grouped
         grouped = list(self._group_commands(self.commands))
-        links = [input]
-        processes = []
+        links = [self.input]
+        self.processes = []
         # create subprocesses first
         for i, (group, native) in enumerate(grouped):
             if not native:
                 proc_input = links[-1]
                 if proc_input is UNFILLED:
                     proc_input = subprocess.PIPE
-                proc_output = output if i == len(grouped) - 1 else subprocess.PIPE
+                proc_output = self.output if i == len(grouped) - 1 else subprocess.PIPE
                 print('Popen with {} -> {} -> {}'.format(proc_input, group.commandline, proc_output))
                 commandline = shlex.split(group.commandline)
                 proc = subprocess.Popen(
@@ -196,12 +212,12 @@ class PartialPipeline(object):
                     # overwrite the UNFILLED with the pipe
                     links[-1] = proc.stdin
                 links.append(proc.stdout)
-                processes.append(proc)
+                self.processes.append(proc)
             else:
                 links.append(UNFILLED)
-                processes.append(UNFILLED)
+                self.processes.append(UNFILLED)
         if links[-1] == UNFILLED:
-            links[-1] = output
+            links[-1] = self.output
         # connect the gaps using PythonPipelineThread
         for i, (group, native) in enumerate(grouped):
             if native:
@@ -209,15 +225,24 @@ class PartialPipeline(object):
                 proc_output = links[i + 1]
                 print('PPT with {} -> {} -> {}'.format(proc_input, group, proc_output))
                 proc = PythonPipelineThread(proc_input, group, proc_output)
-                processes[i] = proc
+                self.processes[i] = proc
             # else pass
+        if len(self.parallel) == 0:
+            print('waiting directly')
+            self.wait()
+        else:
+            # FIXME: prevent use of more than one
+            print('letting context manager do the waiting')
+            self.parallel[0].add_pipeline(self)
+
+    def wait(self):
         # Wait for the subprocesses to exit
-        for proc in processes:
+        for proc in self.processes:
             print('waiting for {}'.format(proc))
             proc.wait()
         # Close endpoints if needed
-        self._close_endpoint(input)
-        self._close_endpoint(output)
+        self._close_endpoint(self.input)
+        self._close_endpoint(self.output)
 
 
 class PythonPipelineThread(threading.Thread):
@@ -273,6 +298,57 @@ class PythonPipelineThread(threading.Thread):
 
     def wait(self):
         self.join()
+
+
+class ParallelPseudoCommand(BaseCommand):
+    def __init__(self, context_manager):
+        self.context_manager = context_manager 
+
+    def __rand__(self, other):
+        """other & self. Causes BaseCommand other to be run in parallel. """
+        return other.new(parallel=self.context_manager)
+
+    def __rshift__(self, other):
+        """ self >> other. Pipes output of self into endpoint other. """
+        ppipe = ParallelPseudoPipeline(parallel=self.context_manager, output=other)
+        return ppipe
+
+    def __or__(self, other):
+        """ self | other """
+        raise Exception('"& para" should be placed next-to-last, '
+            'after all commands, immediately before the endpoint.')
+
+
+class ParallelPseudoPipeline(PartialPipeline):
+    def __init__(self, parallel, output):
+        super().__init__(input=UNFILLED, commands=UNFILLED, output=output, parallel=parallel)
+        print('ParallelPseudoPipeline setting parallel', self.parallel)
+
+    def __rand__(self, other):
+        """other & self. Causes BaseCommand other to be run in parallel. """
+        other.parallel = self.parallel
+        print('setting other.parallel', other.parallel)
+        return other
+
+
+class Parallel(object):
+    def __init__(self):
+        self.pipelines = []
+
+    def add_pipeline(self, pipe):
+        self.pipelines.append(pipe)
+        return pipe
+
+    def __enter__(self):
+        return ParallelPseudoCommand(self)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        print('Parallel has:', self.pipelines, exc_type)
+        if exc_type is not None:
+            # don't run if execption was raised
+            return
+        for pipe in self.pipelines:
+            pipe.wait()
 
 
 def run(partial_pipeline):

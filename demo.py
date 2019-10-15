@@ -68,3 +68,9 @@ def exe_func(lines):
 def consumer_func(lines):
     print('first result line', next(lines))
 range(10) >> pyd.Function(exe_func) >> consumer_func
+
+# parallel execution
+with pyd.Parallel() as para:
+    print('18')
+    None >> noinprog & para >> None
+    None >> noinprog & para >> None
