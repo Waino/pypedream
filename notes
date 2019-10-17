@@ -110,3 +110,8 @@ file_r >> cmd | cmd >> file_w
     cmd1.__rrshift__(file_r)    ->  x0: pyd.PartialPipeline
     cmd2.__rshift__(file_w)     ->  x1: pyd.PartialPipeline
     x0.__or__(x1)               ->  return value (both ends filled: executes pipeline)
+
+
+- 2do
+    - replace user-triggerable asserts with exceptions
+    - separate test suite from usage examples
