@@ -65,18 +65,27 @@ import pypedream as pyd
 - how to handle stderr of spawned processes?
     - perhaps default to redirecting it to stderr of main script
     - override with keyword to pyd.Command ?
+    - pure python pyd.Function needs different solution for stderr
 - do we want to do something for files given as arguments to commands?
     - no, this would be overengineering
 - how to handle failed execution?
     - raise an exception
-    - possibility to override by keyword arg to Command
+    - possibility to override by keyword arg to Command, or just wrap in try?
 - shorter name for convenience
 - standard executables
-- cd and env, os.path.expandvars
-- filename wildcards using glob, expanding ~ to homedir with os.path.expanduser
+- shell stuff
+    - cd and env, os.path.expandvars
+    - filename wildcards using glob, expanding ~ to homedir with os.path.expanduser
+        - Popen takes cwd and env arguments (env replaces, doesn't add)
+        - cd better as a context manager?
+        - env can be accessed using os.environ
+        - glob.glob(os.path.expanduser(os.path.expandvars(path)))
+            - when should this be applied?
 - parallel execution (not critical)
     - asyncio makes this easy
-- creating a stdin manually from one or more strings (rarely needed)
+- creating a stdin manually from one or more strings (rarely needed): LiteralIn
+- append: open manually rather than rely on automatic opening
+    - need to easily access the shell stuff and transparent decompression: make a custom open
 
 
 - possible nice extra features
@@ -85,8 +94,9 @@ import pypedream as pyd
         - specific arguments by adding a string: myprog + '--dwim' -> new Command
     - filling in argument on command line using format string?
         myprog = pyd.Command('myprog --arg={arg}'); myprog.format(arg=42)
-    - transparent handling of compressed files (when using pathlib)
-    - checking existence of executables already when defining them for early fail
+    - transparent handling of compressed files (when using strings or pathlib)
+    - checking existence of executables already when defining them, for early fail
+        - problematic for standard executables: needs to be suppressable at least
 
 file    := pathlib.Path OR open file handle
 file_r  := file OR iterator  OR None
