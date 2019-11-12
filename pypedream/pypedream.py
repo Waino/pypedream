@@ -112,8 +112,8 @@ class PypeComponent():
 
     def stderr(self, stderr):
         """ Set standard error """
-        # TODO: opening of file if needed
         self._stderr = stderr
+        return self
 
 
 class Command(PypeComponent):
@@ -159,6 +159,7 @@ class Execute():
         # does output need separate handling?
         # FIXME: append for debug
         self.output = self._normalize_endpoint(pype.output, 'a')
+        self.err = self._normalize_endpoint(pype._stderr, 'a')
         # python commands need to be grouped
         self.grouped = list(self._group_commands(pype.commands))
 
@@ -181,7 +182,8 @@ class Execute():
                     proc_input = subprocess.PIPE
                 proc_output = self.output \
                     if i == len(self.grouped) - 1 else subprocess.PIPE
-                proc = self._popen(proc_input, group, proc_output)
+                proc_stderr = self.err
+                proc = self._popen(proc_input, group, proc_output, proc_stderr)
                 if proc_input == subprocess.PIPE:
                     # overwrite the UNFILLED with the pipe
                     links[-1] = proc.stdin
@@ -202,7 +204,7 @@ class Execute():
                 self.processes[i] = proc
             # else pass
 
-    def _popen(self, proc_input, commandline, proc_output):
+    def _popen(self, proc_input, commandline, proc_output, proc_stderr):
         """ Use popen to create a subprocess """
         print('Popen with {} -> {} -> {}'.format(proc_input, commandline, proc_output))
         commandline = shlex.split(commandline)
@@ -210,6 +212,7 @@ class Execute():
             commandline,
             stdin=proc_input,
             stdout=proc_output,
+            stderr=proc_stderr,
             universal_newlines=True,
             bufsize=-1)
         return proc 

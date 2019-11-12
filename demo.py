@@ -6,9 +6,11 @@ import sys
 myprog = pyd.Command('./myprog')
 noinprog = pyd.Command('./noinprog')
 argsprog = pyd.Command('./noinprog --a {a} --b {b}')
+stderrprog = pyd.Command('./stderrprog')
 
 file_r = pathlib.Path('testdata') / 'small_file'  #'large_file'
 file_w = pathlib.Path('tmp') / 'output'
+file_stderr = pathlib.Path('tmp') / 'stderr'
 
 # To execute a command without binding stdin and stdout
 # the user must explicitly pipe to None
@@ -74,3 +76,9 @@ with pyd.Parallel() as para:
     print('18')
     None >> noinprog & para >> None
     None >> noinprog & para >> None
+
+print('19')
+# uncaught
+None >> stderrprog >> None
+# redirected
+None >> stderrprog.stderr(file_stderr) >> None
