@@ -11,7 +11,7 @@ import sys
 import threading
 
 
-class Unfilled(object):
+class Unfilled():
     """ Unfilled endpoints during pipeline creation.
     Can't use None, because that means don't connect """
     def __repr__(self):
@@ -36,7 +36,8 @@ def unique(a, b, name):
     if UNFILLED in values:
         values.remove(UNFILLED)
     if len(values) > 1:
-        raise Exception('Cannot give two separate values for "{}" '
+        raise Exception(
+            'Cannot give two separate values for "{}" '
             '({} and {})'.format(name, a, b))
     if len(values) == 0:
         if a is None or b is None:
@@ -134,7 +135,8 @@ class Command(PypeComponent):
     def __add__(self, other):
         """ Add command line arguments """
         if len(self.commands) != 1:
-            raise Exception('The + operator must be used directly '
+            raise Exception(
+                'The + operator must be used directly '
                 'on individual Commands')
         command = self.commands[0] + ' ' + other
         return self.new(commands=[command])
@@ -143,7 +145,8 @@ class Command(PypeComponent):
         """ Fill in concrete arguments in a commandline
         specified as a format string. """
         if len(self.commands) != 1:
-            raise Exception('The format method must be used directly '
+            raise Exception(
+                'The format method must be used directly '
                 'on individual Commands')
         command = self.commands[0].format(*args, **kwargs)
         return self.new(commands=[command])
@@ -224,7 +227,7 @@ class Execute():
             stderr=proc_stderr,
             universal_newlines=True,
             bufsize=-1)
-        return proc 
+        return proc
 
     def _normalize_endpoint(self, endpoint, mode):
         ## handle various endpoints
@@ -267,6 +270,7 @@ class Execute():
             yield current, True
 
     def wait(self):
+        """ Wait for the entire pipeline to finish """
         failed = []
         # Wait for the subprocesses to exit
         for proc in self.processes:
@@ -283,7 +287,7 @@ class Execute():
 class PythonPipelineThread(threading.Thread):
     """ Executes a part of a pipeline
     written directly in the python script """
-    def __init__(self, source, transforms, sink, stderr=None, *args, **kwargs):
+    def __init__(self, source, transforms, sink, *args, stderr=None, **kwargs):
         self.source = source
         self.transforms = transforms
         self.sink = sink
@@ -294,24 +298,24 @@ class PythonPipelineThread(threading.Thread):
             self.transforms.append(self.sink)
             self.sink = None
         if all(x is None for x in (self.source, self.sink)):
-            self.thread_target = self.no_pipes
+            self.thread_target = self._no_pipes
         elif self.source is None:
-            self.thread_target = self.shovel_in
+            self.thread_target = self._shovel_in
         elif self.sink is None:
-            self.thread_target = self.shovel_out
+            self.thread_target = self._shovel_out
         else:
-            self.thread_target = self.shovel_through
-        super().__init__(target=self.target_with_catch)
+            self.thread_target = self._shovel_through
+        super().__init__(target=self._target_with_catch)
         self.start()
-    
-    def target_with_catch(self):
+
+    def _target_with_catch(self):
         try:
             self.thread_target()
         except Exception as e:
             self.exception = e
             raise e
 
-    def apply_transform(self, stream=None):
+    def _apply_transform(self, stream=None):
         if self.stderr is not None:
             cm = contextlib.redirect_stderr(self.stderr)
         else:
@@ -324,28 +328,31 @@ class PythonPipelineThread(threading.Thread):
                     stream = transform(stream)
         return stream
 
-    def no_pipes(self):
-        for _ in self.apply_transform():
+    def _no_pipes(self):
+        for _ in self._apply_transform():
             # consume stream
             pass
 
-    def shovel_in(self):
-        for line in self.apply_transform():
+    def _shovel_in(self):
+        for line in self._apply_transform():
             self.sink.write(line)
 
-    def shovel_out(self):
-        stream = self.apply_transform(self.source)
+    def _shovel_out(self):
+        stream = self._apply_transform(self.source)
         if stream is None:
             return
         for _ in stream:
             # consume stream
             pass
 
-    def shovel_through(self):
-        for line in self.apply_transform(self.source):
+    def _shovel_through(self):
+        for line in self._apply_transform(self.source):
             self.sink.write(line)
 
     def wait(self):
+        """ Join this thread.
+        Named wait for consistency with Popen.
+        Returns 0 on success, 1 if the thread raised an Exception. """
         self.join()
         if self.exception is None:
             return 0
@@ -357,11 +364,14 @@ class PythonPipelineThread(threading.Thread):
         return [x.__name__ for x in self.transforms]
 
 
-class Parallel(object):
+class Parallel():
+    """ A grouping context for running pipelines in parallel """
     def __init__(self):
         self.pipelines = []
 
     def add_pipeline(self, pipe):
+        """ Called by Execute to add a pipeline to the context.
+        Use the & operator rather than calling this directly. """
         self.pipelines.append(pipe)
         return pipe
 

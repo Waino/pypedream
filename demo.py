@@ -1,6 +1,8 @@
-import pypedream as pyd
+# pypedream pypelines look like pointless statements
+# pylint: disable=W0104, W0106
 import pathlib
 import sys
+import pypedream as pyd
 
 # In one style, executables are declared in the beginning
 myprog = pyd.Command('./myprog')
