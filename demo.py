@@ -82,3 +82,12 @@ print('19')
 None >> stderrprog >> None
 # redirected
 None >> stderrprog.stderr(file_stderr) >> None
+
+def stderr_func():
+    print('from func to stderr', file=sys.stderr)
+    yield 'must yield'
+
+print('20')
+stderrf = pyd.Function(stderr_func)
+None >> stderrf >> None
+None >> stderrf.stderr(file_stderr) >> None

@@ -2,6 +2,7 @@
 pypedream - Utility library for scriptwriting
 """
 
+import contextlib
 import gzip
 import pathlib
 import shlex
@@ -199,8 +200,9 @@ class Execute():
             if native:
                 proc_input = links[i]
                 proc_output = links[i + 1]
+                proc_stderr = self.err
                 print('PPT with {} -> {} -> {}'.format(proc_input, group, proc_output))
-                proc = PythonPipelineThread(proc_input, group, proc_output)
+                proc = PythonPipelineThread(proc_input, group, proc_output, stderr=proc_stderr)
                 self.processes[i] = proc
             # else pass
 
@@ -270,10 +272,11 @@ class Execute():
 class PythonPipelineThread(threading.Thread):
     """ Executes a part of a pipeline
     written directly in the python script """
-    def __init__(self, source, transforms, sink, *args, **kwargs):
+    def __init__(self, source, transforms, sink, stderr=None, *args, **kwargs):
         self.source = source
         self.transforms = transforms
         self.sink = sink
+        self.stderr = stderr
         if callable(self.sink):
             # callable sinks work better as part of transform
             self.transforms.append(self.sink)
@@ -290,11 +293,16 @@ class PythonPipelineThread(threading.Thread):
         self.start()
 
     def apply_transform(self, stream=None):
-        for transform in self.transforms:
-            if stream is None:
-                stream = transform()
-            else:
-                stream = transform(stream)
+        if self.stderr is not None:
+            cm = contextlib.redirect_stderr(self.stderr)
+        else:
+            cm = contextlib.nullcontext()
+        with cm:
+            for transform in self.transforms:
+                if stream is None:
+                    stream = transform()
+                else:
+                    stream = transform(stream)
         return stream
 
     def no_pipes(self):
