@@ -19,6 +19,15 @@ class Unfilled(object):
 UNFILLED = Unfilled()
 
 
+class RetcodeException(Exception):
+    """ Executed command(s) with non-zero return code """
+    def __init__(self, failed):
+        msg = 'The following processes failed: '
+        for args, retcode in failed:
+            msg += '{} with return code {}, '.format(args, retcode)
+        super().__init__(msg)
+
+
 def unique(a, b, name):
     values = set((a, b))
     # ignore None and UNFILLED
@@ -260,13 +269,18 @@ class Execute():
             yield current, True
 
     def wait(self):
+        failed = []
         # Wait for the subprocesses to exit
         for proc in self.processes:
             print('waiting for {}'.format(proc))
-            proc.wait()
+            retcode = proc.wait()
+            if retcode != 0:
+                failed.append((proc.args, retcode))
         # Close endpoints if needed
         self._close_endpoint(self.input)
         self._close_endpoint(self.output)
+        if len(failed) > 0:
+            raise RetcodeException(failed)
 
 
 class PythonPipelineThread(threading.Thread):
@@ -277,20 +291,28 @@ class PythonPipelineThread(threading.Thread):
         self.transforms = transforms
         self.sink = sink
         self.stderr = stderr
+        self.exception = None
         if callable(self.sink):
             # callable sinks work better as part of transform
             self.transforms.append(self.sink)
             self.sink = None
         if all(x is None for x in (self.source, self.sink)):
-            thread_target = self.no_pipes
+            self.thread_target = self.no_pipes
         elif self.source is None:
-            thread_target = self.shovel_in
+            self.thread_target = self.shovel_in
         elif self.sink is None:
-            thread_target = self.shovel_out
+            self.thread_target = self.shovel_out
         else:
-            thread_target = self.shovel_through
-        super().__init__(target=thread_target)
+            self.thread_target = self.shovel_through
+        super().__init__(target=self.target_with_catch)
         self.start()
+    
+    def target_with_catch(self):
+        try:
+            self.thread_target()
+        except Exception as e:
+            self.exception = e
+            raise e
 
     def apply_transform(self, stream=None):
         if self.stderr is not None:
@@ -328,6 +350,14 @@ class PythonPipelineThread(threading.Thread):
 
     def wait(self):
         self.join()
+        if self.exception is None:
+            return 0
+        else:
+            return 1
+
+    @property
+    def args(self):
+        return [x.__name__ for x in self.transforms]
 
 
 class Parallel(object):

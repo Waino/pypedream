@@ -7,6 +7,7 @@ myprog = pyd.Command('./myprog')
 noinprog = pyd.Command('./noinprog')
 argsprog = pyd.Command('./noinprog --a {a} --b {b}')
 stderrprog = pyd.Command('./stderrprog')
+failprog = pyd.Command('./failprog')
 
 file_r = pathlib.Path('testdata') / 'small_file'  #'large_file'
 file_w = pathlib.Path('tmp') / 'output'
@@ -91,3 +92,21 @@ print('20')
 stderrf = pyd.Function(stderr_func)
 None >> stderrf >> None
 None >> stderrf.stderr(file_stderr) >> None
+
+
+def exception_func():
+    raise Exception('Raised from func')
+    yield 'must yield'
+
+print('21')
+try:
+    None >> failprog >> None
+except pyd.RetcodeException:
+    print('caught fail')
+print('after catching')
+
+try:
+    None >> pyd.Function(exception_func) >> None
+except pyd.RetcodeException:
+    print('caught fail')
+print('after fail')
