@@ -175,10 +175,10 @@ class Execute():
 
         self.execute()
         if pype.parallel is None:
-            print('waiting directly')
+            # waiting directly
             self.wait()
         else:
-            print('letting context manager do the waiting')
+            # letting context manager do the waiting
             pype.parallel.add_pipeline(self)
 
     def execute(self):
@@ -210,14 +210,12 @@ class Execute():
                 proc_input = links[i]
                 proc_output = links[i + 1]
                 proc_stderr = self.err
-                print('PPT with {} -> {} -> {}'.format(proc_input, group, proc_output))
                 proc = PythonPipelineThread(proc_input, group, proc_output, stderr=proc_stderr)
                 self.processes[i] = proc
             # else pass
 
     def _popen(self, proc_input, commandline, proc_output, proc_stderr):
         """ Use popen to create a subprocess """
-        print('Popen with {} -> {} -> {}'.format(proc_input, commandline, proc_output))
         commandline = shlex.split(commandline)
         proc = subprocess.Popen(
             commandline,
@@ -272,7 +270,6 @@ class Execute():
         failed = []
         # Wait for the subprocesses to exit
         for proc in self.processes:
-            print('waiting for {}'.format(proc))
             retcode = proc.wait()
             if retcode != 0:
                 failed.append((proc.args, retcode))
@@ -372,7 +369,6 @@ class Parallel(object):
         return ParallelPseudoCommand(self)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        print('Parallel has:', self.pipelines)
         if exc_type is not None:
             # don't run if execption was raised
             return
