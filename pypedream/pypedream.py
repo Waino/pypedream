@@ -68,23 +68,30 @@ class PypeComponent():
 
     def __rshift__(self, other):
         """ self >> other. Pipes output of self into endpoint other. """
-        assert self.output == UNFILLED
+        if self.output != UNFILLED:
+            raise Exception('Trying to set output twice for {}'.format(self))
         return self.new(output=other)
 
     def __lshift__(self, other):
         """ self << other. Pipes startpoint other into self. """
-        assert self.input == UNFILLED
+        if self.input != UNFILLED:
+            raise Exception('Trying to set input twice for {}'.format(self))
         return self.new(input=other)
 
     def __rrshift__(self, other):
         """other >> self. Pipes startpoint other into self. """
-        assert self.input == UNFILLED
+        if self.input != UNFILLED:
+            raise Exception('Trying to set input twice for {}'.format(self))
         return self.new(input=other)
 
     def __or__(self, other):
         """self | other. Pipes output of self into PypeComponent other. """
-        assert other.input == UNFILLED
-        assert self.output == UNFILLED
+        if other.input != UNFILLED or self.output != UNFILLED:
+            raise Exception(
+                'Cannot use the pipe operator "|" to extend a PypeComponent '
+                'that already has a filled endpoint. '
+                'self.output: {out}, other.input: {inp}'.format(
+                    out=self.output, inp=other.input))
         kwargs = {
             'input': self.input,
             'commands': self.commands + other.commands,
@@ -96,7 +103,8 @@ class PypeComponent():
 
     def __and__(self, other):
         """self & other. Causes pypeline to be run in parallel. """
-        assert self.parallel is None
+        if self.parallel is not None:
+            raise Exception('Trying to set parallel twice for {}'.format(self))
         return self | other
 
     def __repr__(self):
@@ -115,14 +123,18 @@ class Command(PypeComponent):
 
     def __add__(self, other):
         """ Add command line arguments """
-        assert len(self.commands) == 1
+        if len(self.commands) != 1:
+            raise Exception('The + operator must be used directly '
+                'on individual Commands')
         command = self.commands[0] + ' ' + other
         return self.new(commands=[command])
 
     def format(self, *args, **kwargs):
         """ Fill in concrete arguments in a commandline
         specified as a format string. """
-        assert len(self.commands) == 1
+        if len(self.commands) != 1:
+            raise Exception('The format method must be used directly '
+                'on individual Commands')
         command = self.commands[0].format(*args, **kwargs)
         return self.new(commands=[command])
 

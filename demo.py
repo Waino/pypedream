@@ -5,7 +5,7 @@ import sys
 # In one style, executables are declared in the beginning
 myprog = pyd.Command('./myprog')
 noinprog = pyd.Command('./noinprog')
-argsprog = pyd.Command('./myprog --a {a} --b {b}')
+argsprog = pyd.Command('./noinprog --a {a} --b {b}')
 
 file_r = pathlib.Path('testdata') / 'small_file'  #'large_file'
 file_w = pathlib.Path('tmp') / 'output'
@@ -47,14 +47,14 @@ file_r >> my_pipeline >> None
 'testdata/a' >> my_pipeline >> file_w
 
 # stdin, stdout and stderr of main script
-print('12')
-sys.stdin >> myprog >> sys.stdout
+print('12 disabled')
+#sys.stdin >> myprog >> sys.stdout
 
 # arguments
 print('13')
 'testdata/a' >> pyd.Command('./myprog --oneliner') >> 'tmp/b'
 print('14')
-None >> myprog + '--add' >> None
+None >> noinprog + '--add' >> None
 print('15')
 file_r >> myprog + '--1st' | myprog + '--2nd' >> file_w
 print('16')
